@@ -7,7 +7,7 @@ School of Computational Sciences and Artificial Intelligence, Zewail City
 
 AeroCore is a custom Database Management System (DBMS) developed from scratch as part of the CSAI 302 Advanced Database Systems project.
 
-The project will be implemented incrementally across six milestones:
+The project is implemented incrementally across six milestones:
 
 1. Storage Engine
 2. Advanced Indexing
@@ -16,11 +16,11 @@ The project will be implemented incrementally across six milestones:
 5. Distributed Database
 6. Full System Integration
 
-AeroCore does not use existing database engines such as SQLite, PostgreSQL, MySQL, or MongoDB. The main DBMS components will be designed and implemented by our team.
+AeroCore does not use existing database engines such as SQLite, PostgreSQL, MySQL, or MongoDB. The main DBMS components are designed and implemented by our team.
 
 **Application Domain:** Airline Reservations and Passenger Analytics.
 
-The airline reservation system serves as the application domain used to demonstrate and test the DBMS capabilities. The main focus of the project is building the database engine itself.
+The airline reservation system serves as the application domain used to demonstrate and test the DBMS capabilities. The main focus is building the database engine itself.
 
 ### Main Application Features
 
@@ -45,7 +45,7 @@ The airline reservation system serves as the application domain used to demonstr
 
 | Milestone | Description | Status |
 |---|---|---|
-| M1 | Storage Engine | In Progress |
+| M1 | Storage Engine | Completed |
 | M2 | Advanced Indexing | Planned |
 | M3 | Query Processing | Planned |
 | M4 | Transactions and Recovery | Planned |
@@ -116,23 +116,23 @@ Cosine similarity or Euclidean distance will be used to measure vector similarit
 The initial M1 architecture consists of four main layers:
 
 ```text
-             Table API
-  (Insert / Get / Scan / Update / Delete)
+              Table API
+   (Insert / Get / Scan / Update / Delete)
                     |
                     v
-             Layout Layer
-         (RowStore | ColumnStore)
+              Layout Layer
+          (RowStore | ColumnStore)
                     |
                     v
-              Buffer Pool
-          (LRU | FIFO | Clock)
+               Buffer Pool
+                (LRU | FIFO)
                     |
                     v
-              Disk Manager
-          (Fixed-Size Pages)
+               Disk Manager
+              (4 KB Pages)
                     |
                     v
-             Database File
+              Database File
 ```
 
 ### Component Responsibilities
@@ -143,7 +143,7 @@ The initial M1 architecture consists of four main layers:
 
 **Buffer Pool:** Caches database pages in memory and manages page replacement when the buffer becomes full.
 
-**Replacement Policies:** Determine which page should be removed from the buffer pool. The initial implementation will support FIFO and LRU, with Clock as an additional policy.
+**Replacement Policies:** Determine which page should be removed from the buffer pool. The current implementation supports FIFO and LRU.
 
 **Disk Manager:** Handles reading and writing fixed-size pages to persistent database files and tracks physical I/O operations.
 
@@ -151,27 +151,25 @@ The initial M1 architecture consists of four main layers:
 
 The first milestone focuses on implementing the storage foundation of AeroCore.
 
-### 6.1 Main Features
+### 6.1 Implemented Features
 
-- Custom persistent storage using 4 KB pages.
+- Persistent 4 KB database pages.
 - Slotted-page structure for row-oriented records.
-- Buffer pool with configurable replacement policies.
-- FIFO and LRU replacement algorithms.
-- Row-oriented storage layout.
-- Column-oriented storage layout.
-- Persistent data that survives program restarts.
-- Storage and buffer pool performance statistics.
+- Disk Manager for page allocation and disk I/O.
+- Buffer Pool with configurable capacity.
+- LRU and FIFO page replacement policies.
+- Page pinning and unpinning.
+- Dirty-page tracking and flushing.
+- Row-oriented storage.
+- Column-oriented storage.
+- Buffer Pool performance statistics.
+- Unit testing and performance benchmarks.
 
 ### 6.2 Storage Format
 
-**Database File Header**
+**Database File**
 
-The database file will contain metadata such as:
-
-- Magic number.
-- Page size.
-- Page count.
-- Free-page information.
+The database file stores fixed-size pages and supports persistent page operations.
 
 **Page Structure**
 
@@ -184,13 +182,13 @@ The initial row-oriented storage design uses slotted pages:
 
 **Record Identifier**
 
-Each stored record will be identified using:
+Each stored record is identified using:
 
 `(page_id, slot_id)`
 
 **Record Serialization**
 
-Records will be serialized into bytes using a defined schema and supported data types, including integers, floating-point numbers, and strings.
+Records are serialized into bytes using JSON encoding and stored as bytes in slotted pages.
 
 ### 6.3 Row-Oriented Storage
 
@@ -206,19 +204,21 @@ This layout is suitable for analytical operations, such as calculating average p
 
 ### 6.5 Buffer Pool
 
-The buffer pool temporarily stores database pages in RAM to reduce disk access.
+The Buffer Pool temporarily stores database pages in RAM to reduce disk access.
 
-It will support:
+The implementation supports:
 
 - Configurable buffer capacity.
 - Page loading and eviction.
 - Cache hit and miss tracking.
-- Dirty page management.
-- Page replacement policies.
+- Dirty-page management.
+- Page pinning and unpinning.
+- LRU and FIFO replacement policies.
+- Flushing dirty pages to disk.
 
 ### 6.6 Performance Metrics
 
-The following metrics will be collected:
+The following metrics are collected:
 
 - Cache hits.
 - Cache misses.
@@ -230,21 +230,18 @@ The following metrics will be collected:
 
 ### 6.7 Design Decisions
 
-| Component | Initial Design |
+| Component | Design |
 |---|---|
 | Page Size | 4 KB |
 | Row Storage | Slotted Pages |
 | Record Identification | Page ID and Slot ID |
 | Replacement Policies | FIFO and LRU |
-| Additional Policy | Clock |
 | Persistence | Database Files |
 | Data Source | Synthetic Airline Data |
 
-The exact byte-level page format and columnar serialization design will be documented as implementation progresses.
-
 ## 7. Technology Stack
 
-The initial implementation will use:
+The initial implementation uses:
 
 - **Python 3:** Main programming language.
 - **NumPy:** Numerical operations and benchmark support.
@@ -253,16 +250,12 @@ The initial implementation will use:
 
 Additional libraries may be introduced when required by later milestones.
 
-The team will maintain the exact dependency versions in `requirements.txt`.
+The team maintains the dependencies in `requirements.txt`.
 
 ## 8. Repository Structure
 
 ```text
-AeroCore/
-│
-├── .github/
-│   └── workflows/
-│       └── ci.yml
+ADB_project/
 │
 ├── aerocore/
 │   ├── __init__.py
@@ -278,9 +271,6 @@ AeroCore/
 │       ├── row_store.py
 │       └── column_store.py
 │
-├── data/
-│   └── generate_data.py
-│
 ├── benchmarks/
 │   ├── __init__.py
 │   ├── bench_policies.py
@@ -288,21 +278,25 @@ AeroCore/
 │   ├── plot.py
 │   └── run_all.py
 │
+├── data/
+│   └── generate_data.py
+│
 ├── tests/
 │   └── test_storage.py
 │
-├── docs/
-│   ├── proposal.md
-│   ├── architecture.md
-│   └── m1_notes.md
-│
 ├── results/
 │   └── m1/
+│       ├── layout_results.csv
+│       ├── layout_comparison.png
+│       ├── policy_results.csv
+│       └── policy_comparison.png
 │
 ├── README.md
 ├── requirements.txt
 └── .gitignore
 ```
+
+Generated database files and generated datasets are excluded from Git.
 
 ## 9. Getting Started
 
@@ -322,8 +316,8 @@ cd ADB_project
 
 ### 9.3 Create a Virtual Environment
 
-```bash
-python -m venv venv
+```powershell
+python -m venv .venv
 ```
 
 Activate it:
@@ -331,13 +325,13 @@ Activate it:
 **Windows PowerShell:**
 
 ```powershell
-venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 ```
 
 **Linux / macOS:**
 
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 ### 9.4 Install Dependencies
@@ -348,15 +342,11 @@ pip install -r requirements.txt
 
 ## 10. Running the Project
 
-The following commands will be available as the corresponding scripts are implemented.
-
 ### Run the Storage Demo
 
 ```bash
 python -m aerocore.demo
 ```
-
-The demo will demonstrate creating a table, inserting records, saving them to disk, and retrieving them after restarting the program.
 
 ### Generate Synthetic Airline Data
 
@@ -364,19 +354,27 @@ The demo will demonstrate creating a table, inserting records, saving them to di
 python data/generate_data.py --rows 100000 --seed 42
 ```
 
+The generated dataset is saved under `data/`.
+
 ### Run Unit Tests
 
 ```bash
-pytest -v
+python -m pytest -v
 ```
 
-### Run Benchmarks
+### Run Individual Policy Benchmarks
+
+```bash
+python -m benchmarks.bench_policies
+```
+
+### Run All Benchmarks
 
 ```bash
 python -m benchmarks.run_all --runs 5 --seed 42
 ```
 
-Benchmark results and plots will be saved under:
+Benchmark results and plots are saved under:
 
 ```text
 results/m1/
@@ -384,11 +382,11 @@ results/m1/
 
 ## 11. M1 Benchmarks and Evaluation
 
-The storage engine will be evaluated through repeatable experiments.
+The storage engine is evaluated through repeatable experiments.
 
 ### 11.1 Buffer Pool Benchmark
 
-Compare FIFO and LRU using the same page access workloads.
+Compare FIFO and LRU using the same page access workload.
 
 Metrics:
 
@@ -409,59 +407,76 @@ Examples:
 
 ### 11.3 Experimental Methodology
 
-- Use a fixed random seed of 42.
-- Perform one warm-up run.
-- Perform five measured runs.
-- Report the mean and standard deviation.
-- Keep the workload and experimental settings consistent.
+The benchmark configuration uses:
 
-### 11.4 Results
+- A fixed random seed of 42.
+- One warm-up run.
+- Five measured runs.
+- Mean and standard deviation for timing measurements.
+- Consistent workload and experimental settings.
 
-**Environment:**
+### 11.4 Generated Results
 
-- Operating System: To be documented.
-- CPU: To be documented.
-- RAM: To be documented.
-- Disk Type: To be documented.
-- Python Version: To be documented.
+Both benchmark experiments completed successfully.
 
-**Benchmark Results:**
+The following result files were generated:
 
-| Experiment | Metrics |
+| File | Description |
 |---|---|
-| FIFO vs. LRU | Hit ratio, misses, execution time |
-| Row vs. Column Storage | Execution time, page reads |
-| Buffer Pool | Hits, misses, evictions, I/O |
+| `policy_results.csv` | FIFO and LRU benchmark measurements |
+| `policy_comparison.png` | FIFO and LRU performance comparison |
+| `layout_results.csv` | Row and Column storage measurements |
+| `layout_comparison.png` | Row and Column performance comparison |
 
-Plots and raw results will be added after running the experiments.
+All generated benchmark results are located in `results/m1/`.
 
-### 11.5 Discussion
+### 11.5 Unit Testing Results
 
-The team will analyze the experimental results, compare the implemented approaches, and explain the observed performance differences.
+The M1 storage implementation was tested using Pytest.
+
+**Final test result: 9 passed.**
+
+The tests cover:
+
+| Test | Description |
+|---|---|
+| Page Insert and Serialization | Checks page insertion and serialization roundtrip |
+| Disk Persistence | Checks that data persists after reopening the database |
+| LRU Eviction | Checks the LRU replacement policy |
+| Row Store | Checks row-oriented record storage |
+| Column Store | Checks column-oriented record storage |
+| Page Delete and Slot Reuse | Checks deletion and reuse of available slots |
+| FIFO Eviction | Checks the FIFO replacement policy |
+| Pinned Page Protection | Checks that pinned pages cannot be evicted |
+| Dirty Page Flushing | Checks that modified pages are flushed correctly |
 
 ## 12. Known Limitations
 
-Limitations will be documented as the implementation progresses.
+The current M1 implementation provides the storage foundation but does not yet implement all features of a complete DBMS.
 
-Potential initial limitations include:
+Current limitations include:
 
 - Limited supported data types.
-- Fixed-length or bounded-length string fields.
-- No advanced free-space compaction initially.
-- Limited query functionality during M1.
-- No transaction processing until M4.
+- Basic record serialization.
+- ColumnStore page mapping is currently maintained in memory.
+- No advanced free-space compaction.
+- No advanced query processing yet.
+- No transaction processing or recovery yet.
+- No distributed database functionality yet.
+
+These features will be addressed in later milestones where applicable.
 
 ## 13. External Libraries
 
-The initial project dependencies will be maintained in `requirements.txt`.
+The project dependencies are maintained in `requirements.txt`.
 
-Expected libraries:
+The main libraries include:
 
 - NumPy.
 - Matplotlib.
 - Pytest.
 
-The custom database engine itself will be implemented by the team rather than delegated to an existing database engine.
+The custom database engine itself is implemented by the team rather than delegated to an existing database engine.
 
 ## 14. Team Contribution Guidelines
 
@@ -489,6 +504,8 @@ buffer: add LRU replacement policy
 storage: add column-oriented layout
 
 tests: add persistence tests
+
+benchmarks: add storage performance evaluation
 ```
 
 Avoid committing generated database files, virtual environments, temporary files, or large generated datasets.
