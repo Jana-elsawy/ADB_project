@@ -1,0 +1,3 @@
+policy,mean_seconds,std_seconds,hits,misses,evictions,disk_reads,disk_writes
+lru,0.000563439994584769,0.00011184975516775388,4,12,8,12,0
+fifo,0.0004548400000203401,3.8095181945514157e-05,6,10,6,10,0
