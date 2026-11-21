@@ -1,119 +1,97 @@
+"""M1 layout benchmark: row store vs column store on the same passenger data.
+
+Operations:
+  insert_all        build the table from scratch
+  avg_age           analytical query touching ONE column (column-store friendly)
+  full_scan         read every complete record (row-store friendly)
+  point_lookup_1000 fetch 1000 random complete records
+Read operations start with a cold buffer pool (16 frames, smaller than the table).
+"""
 import random
 import statistics
 import time
-from pathlib import Path
 
-from aerocore.storage.disk import DiskManager
 from aerocore.storage.buffer_pool import BufferPool
-from aerocore.storage.row_store import RowStore
 from aerocore.storage.column_store import ColumnStore
+from aerocore.storage.disk import DiskManager
+from aerocore.storage.row_store import RowStore
+from benchmarks.common import tmpdir
+from data.generate_data import generate_passengers
+
+COLUMNS = ["passenger_id", "name", "age", "country", "email"]
+POOL_CAPACITY = 16
+OPERATIONS = ("insert_all", "avg_age", "full_scan", "point_lookup_1000")
 
 
-def benchmark_layout(layout, records):
-    path = Path(f"results/m1/layout_{layout}.db")
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    if path.exists():
-        path.unlink()
-
+def build(path, layout, records):
+    """Create the table; return (disk, store, keys, insert_seconds)."""
     disk = DiskManager(path)
-    pool = BufferPool(disk, capacity=16, policy="lru")
+    pool = BufferPool(disk, capacity=POOL_CAPACITY)
+    store = RowStore(pool, disk) if layout == "row" else ColumnStore(pool, disk, COLUMNS)
+    start = time.perf_counter()
+    keys = []
+    for i, rec in enumerate(records):
+        rid = store.insert(rec)
+        keys.append(rid if layout == "row" else i)
+    pool.flush_all()
+    return disk, store, keys, time.perf_counter() - start
 
-    if layout == "row":
-        store = RowStore(pool, disk)
 
-        for record in records:
-            store.insert(record)
-
-        # Measure reading the age field from all records
-        start = time.perf_counter()
-
-        result = [record["age"] for record in store.scan()]
-
-        elapsed = time.perf_counter() - start
-
-    elif layout == "column":
-        store = ColumnStore(
-            pool,
-            disk,
-            ["passenger_id", "name", "age", "country"]
-        )
-
-        for record in records:
-            store.insert(record)
-
-        # Measure reading only the age column
-        start = time.perf_counter()
-
-        result = store.get_column("age")
-
-        elapsed = time.perf_counter() - start
-
+def read_op(disk, store, layout, keys, operation, sample):
+    store.pool = BufferPool(disk, capacity=POOL_CAPACITY)  # cold pool, fresh statistics
+    start = time.perf_counter()
+    if operation == "avg_age":
+        ages = [r["age"] for r in store.scan()] if layout == "row" else store.get_column("age")
+        result = sum(ages) / len(ages)
+    elif operation == "full_scan":
+        result = len(store.scan())
     else:
-        raise ValueError("Layout must be 'row' or 'column'")
-
-    average = sum(result) / len(result)
-
-    stats = dict(pool.stats)
-
-    pool.close()
-    disk.close()
-
-    return elapsed, average, stats
+        result = sum(store.get(keys[i])["passenger_id"] for i in sample)
+    return time.perf_counter() - start, result, dict(store.pool.stats)
 
 
-def benchmark(runs=5, seed=42):
+def benchmark(runs=5, seed=42, rows=10000):
     if runs < 2:
         raise ValueError("runs must be at least 2 to calculate standard deviation")
-
-    # Generate the same dataset for both storage layouts
-    rng = random.Random(seed)
-
-    records = []
-
-    for i in range(500):
-        record = {
-            "passenger_id": i,
-            "name": f"Passenger_{i}",
-            "age": rng.randint(18, 75),
-            "country": rng.choice(["Egypt", "Jordan", "UAE", "Saudi Arabia"])
-        }
-
-        records.append(record)
-
-    results = []
-
-    for layout in ("row", "column"):
-
-        # One warm-up run (not included in measurements)
-        benchmark_layout(layout, records)
-
-        times = []
-        last_average = 0
-        last_stats = {}
-
-        # Measured runs
-        for _ in range(runs):
-            elapsed, average, stats = benchmark_layout(layout, records)
-
-            times.append(elapsed)
-            last_average = average
-            last_stats = stats
-
-        mean_time = statistics.mean(times)
-        std_time = statistics.stdev(times)
-
-        results.append((
-            layout,
-            mean_time,
-            std_time,
-            last_average,
-            last_stats
-        ))
-
+    records = generate_passengers(rows, seed)
+    sample = random.Random(seed).sample(range(rows), 1000)
+    results, answers = [], {}
+    with tmpdir() as tmp:
+        for layout in ("row", "column"):
+            insert_times = []
+            for k in range(runs + 1):  # first build is the warm-up
+                disk, store, keys, secs = build(tmp / f"{layout}{k}.db", layout, records)
+                if k > 0:
+                    insert_times.append(secs)
+                if k < runs:
+                    disk.close()
+            pages = disk.page_count
+            results.append({"layout": layout, "operation": "insert_all",
+                            "mean_seconds": statistics.mean(insert_times),
+                            "std_seconds": statistics.stdev(insert_times),
+                            "hits": "", "misses": "", "hit_ratio": "", "disk_reads": "", "table_pages": pages})
+            for operation in OPERATIONS[1:]:
+                read_op(disk, store, layout, keys, operation, sample)  # warm-up
+                times, stats = [], None
+                for _ in range(runs):
+                    secs, result, stats = read_op(disk, store, layout, keys, operation, sample)
+                    times.append(secs)
+                answers[(layout, operation)] = result
+                total = stats["hits"] + stats["misses"]
+                results.append({"layout": layout, "operation": operation,
+                                "mean_seconds": statistics.mean(times), "std_seconds": statistics.stdev(times),
+                                "hits": stats["hits"], "misses": stats["misses"],
+                                "hit_ratio": round(stats["hits"] / total, 4) if total else 0,
+                                "disk_reads": stats["disk_reads"], "table_pages": pages})
+                r = results[-1]
+                print(f"[layout] {layout:6s} {operation:18s} {r['mean_seconds'] * 1000:9.2f} ms "
+                      f"reads={r['disk_reads']}")
+            disk.close()
+    # correctness: both layouts must return identical answers
+    for operation in OPERATIONS[1:]:
+        assert answers[("row", operation)] == answers[("column", operation)], f"layouts disagree on {operation}"
     return results
 
 
 if __name__ == "__main__":
-    for result in benchmark():
-        print(result)
+    benchmark()

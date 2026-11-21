@@ -1,0 +1,15 @@
+{
+  "os": "Windows-10-10.0.19045-SP0",
+  "python": "3.13.13",
+  "processor": "AMD64 Family 21 Model 101 Stepping 1, AuthenticAMD",
+  "cpu_count": 4,
+  "ram_gb": 7.4,
+  "concurrency": "single-threaded",
+  "milestone": "M1",
+  "rows": 10000,
+  "runs": 5,
+  "warmup_runs": 1,
+  "seed": 42,
+  "page_size_bytes": 4096,
+  "command": "python -m benchmarks.run_all --runs 5 --seed 42 --rows 10000"
+}

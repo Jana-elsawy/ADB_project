@@ -1,67 +1,58 @@
 import csv
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+OUT = Path("results/m1")
 
 
-def read_csv(path):
-    with open(path, "r", newline="", encoding="utf-8") as file:
-        return list(csv.DictReader(file))
+def read_csv(name):
+    with open(OUT / name, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
 
 
 def create_plots():
-    output = Path("results/m1")
-    output.mkdir(parents=True, exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    pol = read_csv("policy_results.csv")
+    workloads = list(dict.fromkeys(r["workload"] for r in pol))
+    for metric, ylabel, fname in (("hit_ratio", "Buffer-pool hit ratio", "policy_hit_ratio.png"),
+                                  ("disk_reads", "Physical page reads", "policy_disk_reads.png")):
+        fig, axes = plt.subplots(1, len(workloads), figsize=(5 * len(workloads), 4))
+        for ax, wl in zip(axes, workloads):
+            for policy in dict.fromkeys(r["policy"] for r in pol):
+                pts = [r for r in pol if r["workload"] == wl and r["policy"] == policy]
+                ax.plot([float(p["pool_fraction"]) * 100 for p in pts], [float(p[metric]) for p in pts],
+                        marker="o", label=policy.upper())
+            ax.set_title(f"{wl} workload")
+            ax.set_xlabel("Pool size (% of table pages)")
+            ax.set_ylabel(ylabel)
+            ax.grid(alpha=0.3)
+        axes[0].legend()
+        fig.tight_layout()
+        fig.savefig(OUT / fname, dpi=150)
+        plt.close(fig)
 
-    # Plot 1: LRU vs FIFO
-    policy_file = output / "policy_results.csv"
-    policy_data = read_csv(policy_file)
-
-    policies = [row["policy"].upper() for row in policy_data]
-    policy_times = [
-        float(row["mean_seconds"]) for row in policy_data
-    ]
-    policy_errors = [
-        float(row["std_seconds"]) for row in policy_data
-    ]
-
-    plt.figure(figsize=(7, 5))
-
-    plt.bar(policies, policy_times, yerr=policy_errors, capsize=5)
-
-    plt.title("LRU vs FIFO Replacement Policies")
-    plt.xlabel("Replacement Policy")
-    plt.ylabel("Average Execution Time (seconds)")
-    plt.tight_layout()
-
-    plt.savefig(output / "policy_comparison.png")
-    plt.close()
-
-    # Plot 2: Row vs Column storage
-    layout_file = output / "layout_results.csv"
-    layout_data = read_csv(layout_file)
-
-    layouts = [row["layout"].upper() for row in layout_data]
-    layout_times = [
-        float(row["mean_seconds"]) for row in layout_data
-    ]
-    layout_errors = [
-        float(row["std_seconds"]) for row in layout_data
-    ]
-
-    plt.figure(figsize=(7, 5))
-
-    plt.bar(layouts, layout_times, yerr=layout_errors, capsize=5)
-
-    plt.title("Row vs Column Storage")
-    plt.xlabel("Storage Layout")
-    plt.ylabel("Average Query Execution Time (seconds)")
-    plt.tight_layout()
-
-    plt.savefig(output / "layout_comparison.png")
-    plt.close()
-
-    print("Both benchmark plots were generated successfully.")
+    lay = read_csv("layout_results.csv")
+    ops = list(dict.fromkeys(r["operation"] for r in lay))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    width = 0.38
+    for k, layout in enumerate(("row", "column")):
+        rows = [next(r for r in lay if r["layout"] == layout and r["operation"] == o) for o in ops]
+        ax.bar([i + k * width for i in range(len(ops))], [float(r["mean_seconds"]) for r in rows], width,
+               yerr=[float(r["std_seconds"]) for r in rows], capsize=3, label=layout.upper())
+    ax.set_xticks([i + width / 2 for i in range(len(ops))])
+    ax.set_xticklabels(ops, rotation=12)
+    ax.set_yscale("log")
+    ax.set_ylabel("Time in seconds (mean ± std, log scale)")
+    ax.set_title("Row vs column layout")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(OUT / "layout_comparison.png", dpi=150)
+    plt.close(fig)
+    print("Plots written to", OUT)
 
 
 if __name__ == "__main__":

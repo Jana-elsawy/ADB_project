@@ -21,6 +21,8 @@ class BufferPool:
                       "disk_reads": 0, "disk_writes": 0}
 
     def fetch_page(self, page_id):
+        if page_id not in self.frames and not 0 <= page_id < self.disk.page_count:
+            raise ValueError(f"Unknown page id: {page_id}")  # fail before evicting anything
         if page_id in self.frames:
             self.stats["hits"] += 1
             frame = self.frames[page_id]
@@ -42,12 +44,10 @@ class BufferPool:
         self.policy.record_access(page_id)
         return page
 
-    
     def new_page(self):
         """Allocate a page on disk and return (page_id, pinned page)."""
         page_id = self.disk.allocate_page()
-        return page_id, self.fetch_page(page_id)    
-
+        return page_id, self.fetch_page(page_id)
 
     def _evict(self, page_id):
         frame = self.frames[page_id]

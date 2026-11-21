@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from .page import PAGE_SIZE, Page
 
@@ -40,6 +41,8 @@ class DiskManager:
 
     def close(self):
         if not self.file.closed:
+            self.file.flush()
+            os.fsync(self.file.fileno())  # make sure the data reached the disk
             self.file.close()
 
     def __enter__(self):
