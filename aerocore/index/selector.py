@@ -1,20 +1,25 @@
 """Workload-based index selection rule (M2).
 
-Rule (thresholds are constants so the benchmark can justify or tune them):
-  write_ratio = writes / (writes + point_reads + range_reads)
-  range_ratio = range_reads / (point_reads + range_reads)
+Rule:
+    write_ratio = writes / (writes + point_reads + range_reads)
+    write_ratio >= WRITE_HEAVY  ->  LSM Tree
+    otherwise                   ->  B+ Tree
 
-  write_ratio >= WRITE_HEAVY and range_ratio < RANGE_HEAVY  ->  LSM Tree
-  otherwise                                                  ->  B+ Tree
+Why: the LSM Tree buffers writes in memory and appends sorted runs, so inserts cost a
+fraction of a B+ Tree insert (which rewrites a leaf page every time). Reads pay for this:
+a lookup or scan may have to check several runs. The B+ Tree has one root-to-leaf path
+per lookup and linked leaves for ranges, so it wins on read-dominated workloads.
 
-Why: the LSM Tree batches writes in memory and appends sorted runs, so it wins when
-writes dominate; but a lookup may have to check several runs and a range scan must
-merge them, so it loses when reads (especially range reads) matter. The B+ Tree
-gives one root-to-leaf path per lookup and linked leaves for ranges.
+Where the threshold comes from: it is set from the M2 workload benchmark
+(results/m2/workload_results.csv). In our measurements the B+ Tree was faster at about
+20% writes and the LSM Tree was faster from about 30% writes, even with range scans in
+the mix, so the threshold sits between them. Re-run `python -m benchmarks.run_m2` on
+your own machine and adjust WRITE_HEAVY if the crossover moves. Read-only range
+scans are the remaining case where the B+ Tree is clearly better (E3), and read-only
+workloads are always below the threshold.
 """
 
-WRITE_HEAVY = 0.6
-RANGE_HEAVY = 0.3
+WRITE_HEAVY = 0.25
 
 
 def choose_index(writes, point_reads, range_reads):
@@ -24,11 +29,8 @@ def choose_index(writes, point_reads, range_reads):
     if total == 0:
         return "bptree", "no workload information, defaulting to B+ Tree"
     write_ratio = writes / total
-    range_ratio = range_reads / reads if reads else 0.0
-    if write_ratio >= WRITE_HEAVY and range_ratio < RANGE_HEAVY:
-        return "lsm", (f"write-heavy ({write_ratio:.0%} writes) with few range reads "
-                       f"({range_ratio:.0%} of reads)")
-    if write_ratio < WRITE_HEAVY:
-        return "bptree", f"read-heavy ({write_ratio:.0%} writes)"
-    return "bptree", (f"write-heavy ({write_ratio:.0%} writes) but range reads are "
-                      f"{range_ratio:.0%} of reads")
+    if write_ratio >= WRITE_HEAVY:
+        return "lsm", (f"write-heavy: {write_ratio:.0%} of operations are writes "
+                       f"(threshold {WRITE_HEAVY:.0%})")
+    return "bptree", (f"read-dominated: {write_ratio:.0%} of operations are writes "
+                      f"(threshold {WRITE_HEAVY:.0%})")

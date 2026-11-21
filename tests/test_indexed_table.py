@@ -13,9 +13,11 @@ def _table(tmp_path, **kw):
 
 
 def test_selection_rule():
-    assert choose_index(900, 90, 10)[0] == "lsm"          # write-heavy, few ranges
+    assert choose_index(900, 90, 10)[0] == "lsm"          # write-heavy
+    assert choose_index(300, 600, 100)[0] == "lsm"        # 30% writes is above the 25% threshold
+    assert choose_index(200, 700, 100)[0] == "bptree"     # 20% writes
     assert choose_index(100, 800, 100)[0] == "bptree"     # read-heavy
-    assert choose_index(700, 50, 250)[0] == "bptree"      # write-heavy but range-heavy
+    assert choose_index(0, 100, 900)[0] == "bptree"       # read-only range scans
     assert choose_index(0, 0, 0)[0] == "bptree"           # no information
     assert "write-heavy" in choose_index(900, 90, 10)[1]
 
