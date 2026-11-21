@@ -42,6 +42,13 @@ class BufferPool:
         self.policy.record_access(page_id)
         return page
 
+    
+    def new_page(self):
+        """Allocate a page on disk and return (page_id, pinned page)."""
+        page_id = self.disk.allocate_page()
+        return page_id, self.fetch_page(page_id)    
+
+
     def _evict(self, page_id):
         frame = self.frames[page_id]
         if frame.dirty:
