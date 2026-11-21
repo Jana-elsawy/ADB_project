@@ -46,7 +46,7 @@ The airline reservation system serves as the application domain used to demonstr
 | Milestone | Description | Status |
 |---|---|---|
 | M1 | Storage Engine | Completed |
-| M2 | Advanced Indexing | Planned |
+| M2 | Advanced Indexing | Completed |
 | M3 | Query Processing | Planned |
 | M4 | Transactions and Recovery | Planned |
 | M5 | Distributed Database | Planned |
@@ -262,34 +262,60 @@ ADB_project/
 │   ├── schemas.py
 │   ├── demo.py
 │   │
-│   └── storage/
+│   ├── storage/
+│   │   ├── __init__.py
+│   │   ├── page.py
+│   │   ├── disk.py
+│   │   ├── policies.py
+│   │   ├── buffer_pool.py
+│   │   ├── row_store.py
+│   │   └── column_store.py
+│   │
+│   ├── index/                  # M2
+│   │   ├── __init__.py
+│   │   ├── schema.py
+│   │   ├── bptree.py
+│   │   ├── lsm.py
+│   │   ├── selector.py
+│   │   └── indexed_table.py
+│   │
+│   └── objects/                # M2
 │       ├── __init__.py
-│       ├── page.py
-│       ├── disk.py
-│       ├── policies.py
-│       ├── buffer_pool.py
-│       ├── row_store.py
-│       └── column_store.py
+│       ├── encryption.py
+│       └── store.py
 │
 ├── benchmarks/
 │   ├── __init__.py
 │   ├── bench_policies.py
 │   ├── bench_layout.py
 │   ├── plot.py
-│   └── run_all.py
+│   ├── run_all.py
+│   ├── common.py               # M2
+│   ├── bench_index.py          # M2
+│   ├── plot_m2.py              # M2
+│   └── run_m2.py               # M2
 │
 ├── data/
-│   └── generate_data.py
+│   ├── generate_data.py
+│   └── generate_airline.py     # M2
 │
 ├── tests/
-│   └── test_storage.py
+│   ├── test_storage.py
+│   ├── test_bptree.py          # M2
+│   ├── test_lsm.py             # M2
+│   ├── test_indexed_table.py   # M2
+│   └── test_objects.py         # M2
+│
+├── docs/
+│   └── m2_notes.md             # M2 design, results and limitations
 │
 ├── results/
-│   └── m1/
-│       ├── layout_results.csv
-│       ├── layout_comparison.png
-│       ├── policy_results.csv
-│       └── policy_comparison.png
+│   ├── m1/
+│   │   ├── layout_results.csv
+│   │   ├── layout_comparison.png
+│   │   ├── policy_results.csv
+│   │   └── policy_comparison.png
+│   └── m2/                     # CSV results, charts, environment.json
 │
 ├── README.md
 ├── requirements.txt
@@ -380,6 +406,20 @@ Benchmark results and plots are saved under:
 results/m1/
 ```
 
+### Run the M2 Index Benchmarks
+
+```bash
+python -m benchmarks.run_m2 --runs 5 --seed 42
+```
+
+This takes a few minutes and writes CSV files, charts and `environment.json` to:
+
+```text
+results/m2/
+```
+
+Use `--quick` for a short smoke test.
+
 ## 11. M1 Benchmarks and Evaluation
 
 The storage engine is evaluated through repeatable experiments.
@@ -450,7 +490,49 @@ The tests cover:
 | Pinned Page Protection | Checks that pinned pages cannot be evicted |
 | Dirty Page Flushing | Checks that modified pages are flushed correctly |
 
-## 12. Known Limitations
+## 12. Milestone 2 – Advanced Indexing
+
+M2 adds indexing and object storage on top of the M1 storage engine. Every index is its own page file built with the M1 `DiskManager` and `BufferPool`. The full design, results and limitations are in [`docs/m2_notes.md`](docs/m2_notes.md).
+
+### 12.1 Implemented Features
+
+- **B+ Tree** index (`aerocore/index/bptree.py`): equality and range lookup, duplicate keys, delete, persistence across restarts, integer, string and float keys.
+- **LSM Tree** index (`aerocore/index/lsm.py`): memtable, immutable sorted runs, delete markers, compaction, same interface as the B+ Tree.
+- **Workload-based index selection** (`aerocore/index/selector.py`): writes of 25% or more of the operations select the LSM Tree, otherwise the B+ Tree. `IndexedTable.create_index(col, "auto")` applies the rule.
+- **IndexedTable** (`aerocore/index/indexed_table.py`): a `RowStore` whose indexes are kept in sync on insert, update and delete, with indexed `find` and `find_range`.
+- **Object storage** (`aerocore/objects/store.py`): tickets and manifests stored as chunked objects in M1 pages, with an object catalog kept in a B+ Tree.
+- **Encryption hook** (`aerocore/objects/encryption.py`): pluggable `Cipher` interface with a demonstration stream cipher.
+- Typed schemas for the six tables (`aerocore/index/schema.py`) and a generator for all six tables (`data/generate_airline.py`).
+
+Small additive changes to M1: `BufferPool.new_page()`, `RowStore.scan_with_rids()`, `RowStore.update()` returns the new record ID, and `RowStore.insert()` tries the newest page first.
+
+### 12.2 Test Results
+
+Final test result: **36 passed** (9 M1 tests and 27 M2 tests covering the B+ Tree, LSM Tree, IndexedTable and object storage).
+
+### 12.3 Benchmark Summary
+
+Measured with 1 warm-up run and 5 measured runs, seed 42 (machine details in `results/m2/environment.json`).
+
+| Experiment (20,000 keys or rows) | B+ Tree | LSM Tree |
+|---|---:|---:|
+| Insert throughput | 3,220 ops/s | 23,414 ops/s |
+| Point lookup, median | 0.136 ms | 0.209 ms |
+| 1% range scan, median | 0.261 ms | 0.389 ms |
+| Build index over 20,000 rows | 6.66 s | 0.88 s |
+| Index size | 508 KB | 380 KB |
+
+An indexed lookup on a unique key took 0.32 ms (B+ Tree) compared with 111 ms for a full scan of the 550-page table. The LSM Tree is better for write-heavy workloads and the B+ Tree for read-dominated ones; the 10–30% write range is a near tie and the winner changed between runs (see `docs/m2_notes.md`, section 4.5).
+
+### 12.4 M2 Limitations
+
+- B+ Tree deletes are lazy (nodes are not merged) and nodes are JSON encoded.
+- The LSM Tree has no Bloom filters and no write-ahead log: entries still in the memtable are lost on a crash until the WAL is added in M4.
+- Page-write counts are not collected for LSM flushes, so `page_writes_per_op` is 0 for the LSM Tree in the CSV files.
+- The demonstration cipher is not production security.
+- Object size is limited to 1 MB.
+
+## 13. Known Limitations
 
 The current M1 implementation provides the storage foundation but does not yet implement all features of a complete DBMS.
 
@@ -466,7 +548,7 @@ Current limitations include:
 
 These features will be addressed in later milestones where applicable.
 
-## 13. External Libraries
+## 14. External Libraries
 
 The project dependencies are maintained in `requirements.txt`.
 
@@ -478,7 +560,7 @@ The main libraries include:
 
 The custom database engine itself is implemented by the team rather than delegated to an existing database engine.
 
-## 14. Team Contribution Guidelines
+## 15. Team Contribution Guidelines
 
 To maintain organized development:
 
