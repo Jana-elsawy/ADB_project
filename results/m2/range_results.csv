@@ -1,0 +1,7 @@
+experiment,structure,n,runs,ops_per_run,mean_s,std_s,ops_per_sec,median_ms,p95_ms,page_reads_per_op,page_writes_per_op,size_kb,correct
+range_1pct,bptree,2000,5,50,0.014288,0.001089,3499.5,0.2392,0.5022,0.0,0.0,40.0,True
+range_1pct,lsm,2000,5,50,0.006019,9.8e-05,8307.7,0.1109,0.1979,0.0,0.0,40.0,True
+range_1pct,bptree,10000,5,50,0.013821,0.004907,3617.7,0.2421,0.4534,0.0,0.0,252.0,True
+range_1pct,lsm,10000,5,50,0.010144,0.000567,4928.9,0.1735,0.291,0.84,0.0,180.0,True
+range_1pct,bptree,20000,5,50,0.016402,0.005215,3048.5,0.2606,0.7167,1.14,0.0,508.0,True
+range_1pct,lsm,20000,5,50,0.020424,0.000473,2448.2,0.3888,0.4983,1.44,0.0,380.0,True

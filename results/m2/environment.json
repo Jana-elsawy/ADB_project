@@ -1,0 +1,32 @@
+{
+  "os": "Windows-11-10.0.26300-SP0",
+  "python": "3.15.1",
+  "processor": "AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD",
+  "cpu_count": 8,
+  "ram_gb": 13.9,
+  "concurrency": "single-threaded",
+  "command": "python -m benchmarks.run_m2 --runs 5 --seed 42",
+  "seed": 42,
+  "warmup_runs": 1,
+  "measured_runs": 5,
+  "sizes": [
+    2000,
+    10000,
+    20000
+  ],
+  "table_rows": 20000,
+  "workload_preload_keys": 10000,
+  "workload_ops_per_run": 2000,
+  "dataset": "synthetic, generated with fixed seed",
+  "config": {
+    "page_size": 4096,
+    "bptree_buffer_frames": 64,
+    "bptree_max_node_bytes": 3600,
+    "lsm_buffer_frames_per_run": 16,
+    "lsm_memtable_entries": 2000,
+    "lsm_max_runs": 4,
+    "table_buffer_frames": 16,
+    "replacement_policy": "lru"
+  },
+  "total_seconds": 227.1
+}

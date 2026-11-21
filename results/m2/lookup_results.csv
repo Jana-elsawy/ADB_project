@@ -1,0 +1,7 @@
+experiment,structure,n,runs,ops_per_run,mean_s,std_s,ops_per_sec,median_ms,p95_ms,page_reads_per_op,page_writes_per_op,size_kb,correct
+point_lookup,bptree,2000,5,2000,0.292623,0.080268,6834.7,0.1056,0.2751,0.0,0.0,40.0,True
+point_lookup,lsm,2000,5,2000,0.236617,0.030941,8452.5,0.1082,0.1821,0.0,0.0,40.0,True
+point_lookup,bptree,10000,5,2000,0.229449,0.033385,8716.5,0.0885,0.2307,0.0,0.0,252.0,True
+point_lookup,lsm,10000,5,2000,0.31173,0.013414,6415.8,0.1291,0.3066,0.628,0.0,180.0,True
+point_lookup,bptree,20000,5,2000,0.307466,0.057097,6504.8,0.136,0.2993,0.508,0.0,508.0,True
+point_lookup,lsm,20000,5,2000,0.477325,0.059971,4190.0,0.2088,0.4473,0.791,0.0,380.0,True
