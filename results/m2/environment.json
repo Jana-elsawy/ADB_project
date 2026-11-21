@@ -28,5 +28,5 @@
     "table_buffer_frames": 16,
     "replacement_policy": "lru"
   },
-  "total_seconds": 227.1
+  "total_seconds": 238.5
 }

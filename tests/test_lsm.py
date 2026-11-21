@@ -106,3 +106,16 @@ def test_lsm_and_bptree_agree_on_random_workload(tmp_path):
     for k in range(1, 201, 7):
         assert sorted(lsm.search(k)) == sorted(bpt.search(k))
     lsm.close(); bpt.close()
+
+
+def test_flush_and_compaction_page_writes_are_counted(tmp_path):
+    tree = _small(tmp_path, memtable_limit=20, max_runs=2)
+    assert tree.stats()["disk_writes"] == 0
+    for k in range(1, 201):
+        tree.insert(k, (k, 0))
+    assert tree.flushes > 0 and tree.compactions > 0
+    writes = tree.stats()["disk_writes"]
+    assert writes > 0                                   # run files were written through the pool
+    tree.reset_stats()
+    assert tree.stats()["disk_writes"] == 0
+    tree.close()

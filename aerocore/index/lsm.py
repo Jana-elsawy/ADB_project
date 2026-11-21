@@ -67,7 +67,7 @@ class _Run:
 
     @classmethod
     def write(cls, path, entries, seq):
-        """entries: sorted list of [key, page, slot, op]. Writes then returns nothing."""
+        """entries: sorted list of [key, page, slot, op]. Returns the number of page writes."""
         disk = DiskManager(path)
         pool = BufferPool(disk, capacity=8)
 
@@ -88,7 +88,9 @@ class _Run:
         if chunk:
             put(chunk)
         pool.close()
+        writes = pool.stats["disk_writes"]
         disk.close()
+        return writes
 
     def overlaps(self, lo, hi):
         if not self.fences:
@@ -129,6 +131,7 @@ class LSMTree:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.memtable = {}
         self.flushes = self.compactions = 0
+        self._run_writes = 0          # page writes done while writing runs (flush + compaction)
         self._retired = {"hits": 0, "misses": 0, "evictions": 0, "disk_reads": 0, "disk_writes": 0}
         for tmp in self.dir.glob(f"{name}_*.tmp"):       # leftovers of an interrupted flush
             tmp.unlink()
@@ -163,7 +166,7 @@ class LSMTree:
         self._next_seq += 1
         final = self._run_path(seq)
         tmp = final.with_suffix(".tmp")
-        _Run.write(tmp, entries, seq)
+        self._run_writes += _Run.write(tmp, entries, seq)
         os.replace(tmp, final)                             # atomic publish
         self.runs.append(_Run(final, seq, self.capacity, self.policy))
 
@@ -220,12 +223,14 @@ class LSMTree:
 
     def stats(self):
         total = dict(self._retired)
+        total["disk_writes"] += self._run_writes
         for r in self.runs:
             for k in total:
                 total[k] += r.pool.stats[k]
         return total
 
     def reset_stats(self):
+        self._run_writes = 0
         for k in self._retired:
             self._retired[k] = 0
         for r in self.runs:
