@@ -16,11 +16,11 @@ The project is implemented incrementally across six milestones:
 5. Distributed Database
 6. Full System Integration
 
-AeroCore does not use existing database engines such as SQLite, PostgreSQL, MySQL, or MongoDB. The main DBMS components are designed and implemented by our team.
+AeroCore does not use existing database engines such as SQLite, PostgreSQL, MySQL, or MongoDB. Its main database components are designed and implemented by our team.
 
 **Application Domain:** Airline Reservations and Passenger Analytics.
 
-The airline reservation system serves as the application domain used to demonstrate and test the DBMS capabilities. The main focus is building the database engine itself.
+The airline reservation system is the demonstration application used to evaluate the database engine.
 
 ### Main Application Features
 
@@ -93,6 +93,8 @@ All three operations must succeed together or be rolled back.
 
 Concurrent reservations for the same seat must never both succeed.
 
+These transaction capabilities are planned for M4.
+
 ### 4.4 Distributed Database Scenario (M5)
 
 Passenger and flight data will be partitioned across multiple nodes using a selected sharding strategy.
@@ -103,7 +105,7 @@ Cross-node booking operations will demonstrate distributed transaction processin
 
 ### 4.5 Object Storage Scenario (M2)
 
-The system will support storing airline-related objects, such as electronic tickets and passenger manifests, through its object storage functionality.
+The system supports storing airline-related objects, such as electronic tickets and passenger manifests, through its object storage functionality.
 
 ### 4.6 Vector Search Scenario (M5)
 
@@ -113,39 +115,40 @@ Cosine similarity or Euclidean distance will be used to measure vector similarit
 
 ## 5. System Architecture
 
-The initial M1 architecture consists of four main layers:
+The M1 storage engine consists of the following components:
 
 ```text
-              Table API
-   (Insert / Get / Scan / Update / Delete)
-                    |
-                    v
-              Layout Layer
+          Application / Demo
+                  |
+                  v
+          Storage Layout
           (RowStore | ColumnStore)
-                    |
-                    v
-               Buffer Pool
-                (LRU | FIFO)
-                    |
-                    v
-               Disk Manager
-              (4 KB Pages)
-                    |
-                    v
+                  |
+                  v
+              Buffer Pool
+               (LRU | FIFO)
+                  |
+                  v
+              Disk Manager
+               (4 KB Pages)
+                  |
+                  v
               Database File
 ```
 
 ### Component Responsibilities
 
-**Table API:** Provides the interface for creating tables and performing basic record operations.
+**RowStore:** Stores complete records in slotted pages and supports record insertion, retrieval, scanning, deletion, and update.
 
-**Layout Layer:** Organizes records using row-oriented or column-oriented storage.
+**ColumnStore:** Stores each column in its own chain of pages. Page headers allow the column-page mapping to be reconstructed when the database is reopened.
 
 **Buffer Pool:** Caches database pages in memory and manages page replacement when the buffer becomes full.
 
 **Replacement Policies:** Determine which page should be removed from the buffer pool. The current implementation supports FIFO and LRU.
 
 **Disk Manager:** Handles reading and writing fixed-size pages to persistent database files and tracks physical I/O operations.
+
+M2 introduces additional components, including B+ Tree indexing, LSM Tree indexing, IndexedTable, and object storage.
 
 ## 6. Milestone 1 – Storage Engine Foundation
 
@@ -162,6 +165,8 @@ The first milestone focuses on implementing the storage foundation of AeroCore.
 - Dirty-page tracking and flushing.
 - Row-oriented storage.
 - Column-oriented storage.
+- ColumnStore recovery using page headers.
+- RowStore record ID recovery after reopening.
 - Buffer Pool performance statistics.
 - Unit testing and performance benchmarks.
 
@@ -173,7 +178,7 @@ The database file stores fixed-size pages and supports persistent page operation
 
 **Page Structure**
 
-The initial row-oriented storage design uses slotted pages:
+The row-oriented storage design uses slotted pages:
 
 - Page header stores page metadata.
 - Slot directory stores record locations.
@@ -196,11 +201,25 @@ Records are stored one row at a time.
 
 This layout is suitable for retrieving complete records, such as retrieving all information associated with a passenger.
 
+The RowStore supports:
+
+- Record insertion.
+- Record retrieval.
+- Full-table scanning.
+- Record deletion.
+- Record updates.
+- Reuse of deleted slots.
+- Recovery of the next record ID after reopening the database.
+
 ### 6.4 Column-Oriented Storage
 
-Values belonging to the same column are stored together.
+Values belonging to the same column are stored together in separate page chains.
 
 This layout is suitable for analytical operations, such as calculating average passenger age or analyzing flight occupancy.
+
+Each column page contains a header identifying its column and page sequence number. This allows the page chains to be reconstructed from the database file after reopening.
+
+The current ColumnStore supports insertion, column retrieval, row retrieval, and scanning. Update and delete operations are not supported by this storage layout.
 
 ### 6.5 Buffer Pool
 
@@ -237,20 +256,22 @@ The following metrics are collected:
 | Record Identification | Page ID and Slot ID |
 | Replacement Policies | FIFO and LRU |
 | Persistence | Database Files |
+| Record Serialization | JSON |
 | Data Source | Synthetic Airline Data |
 
 ## 7. Technology Stack
 
-The initial implementation uses:
+The project uses:
 
-- **Python 3:** Main programming language.
-- **NumPy:** Numerical operations and benchmark support.
+- **Python 3.13:** Main programming language. Tested with Python 3.13.13.
 - **Matplotlib:** Benchmark visualization.
 - **Pytest:** Unit testing and correctness validation.
 
+The core storage implementation uses Python and its standard library.
+
 Additional libraries may be introduced when required by later milestones.
 
-The team maintains the dependencies in `requirements.txt`.
+Project dependencies are maintained in `requirements.txt`.
 
 ## 8. Repository Structure
 
@@ -273,7 +294,7 @@ ADB_project/
 │   │   ├── row_store.py
 │   │   └── column_store.py
 │   │
-│   ├── index/                  # M2
+│   ├── index/
 │   │   ├── __init__.py
 │   │   ├── schema.py
 │   │   ├── bptree.py
@@ -298,14 +319,14 @@ ADB_project/
 │   ├── bench_layout.py
 │   ├── plot.py
 │   ├── run_all.py
-│   ├── common.py               # M2
-│   ├── bench_index.py          # M2
-│   ├── plot_m2.py              # M2
-│   └── run_m2.py               # M2
+│   ├── common.py
+│   ├── bench_index.py
+│   ├── plot_m2.py
+│   └── run_m2.py
 │
 ├── data/
 │   ├── generate_data.py
-│   └── generate_airline.py     # M2
+│   └── generate_airline.py
 │
 ├── tests/
 │   ├── test_storage.py
@@ -317,18 +338,16 @@ ADB_project/
 │   └── test_cli.py             # M2
 │
 ├── docs/
-│   └── m2_notes.md             # M2 design, results and limitations
+│   ├── m1_notes.md
+│   └── m2_notes.md
 │
 ├── results/
 │   ├── m1/
-│   │   ├── layout_results.csv
-│   │   ├── layout_comparison.png
-│   │   ├── policy_results.csv
-│   │   └── policy_comparison.png
-│   └── m2/                     # CSV results, charts, environment.json
+│   └── m2/
 │
 ├── README.md
 ├── requirements.txt
+├── check_m1.py
 └── .gitignore
 ```
 
@@ -338,7 +357,7 @@ Generated database files and generated datasets are excluded from Git.
 
 ### 9.1 Prerequisites
 
-- Python 3.x.
+- Python 3.13 (tested with Python 3.13.13).
 - Git.
 - pip.
 
@@ -404,7 +423,7 @@ python -m pytest -v
 python -m benchmarks.bench_policies
 ```
 
-### Run All Benchmarks
+### Run All M1 Benchmarks
 
 ```bash
 python -m benchmarks.run_all --runs 5 --seed 42
@@ -422,7 +441,7 @@ results/m1/
 python -m benchmarks.run_m2 --runs 5 --seed 42
 ```
 
-This takes a few minutes and writes CSV files, charts and `environment.json` to:
+This takes a few minutes and writes CSV files, charts, and `environment.json` to:
 
 ```text
 results/m2/
@@ -446,7 +465,9 @@ The storage engine is evaluated through repeatable experiments.
 
 ### 11.1 Buffer Pool Benchmark
 
-Compare FIFO and LRU using the same page access workload.
+Compare FIFO and LRU using the same page access workloads.
+
+The benchmark evaluates multiple workloads, replacement policies, and buffer pool sizes.
 
 Metrics:
 
@@ -464,6 +485,9 @@ Examples:
 
 - Retrieving complete passenger records.
 - Calculating aggregate values from selected columns.
+- Full-table scanning.
+- Inserting records.
+- Point lookups.
 
 ### 11.3 Experimental Methodology
 
@@ -477,9 +501,7 @@ The benchmark configuration uses:
 
 ### 11.4 Generated Results
 
-Both benchmark experiments completed successfully.
-
-The following result files were generated:
+The benchmark experiments generate the following result files:
 
 | File | Description |
 |---|---|
@@ -492,9 +514,9 @@ All generated benchmark results are located in `results/m1/`.
 
 ### 11.5 Unit Testing Results
 
-The M1 storage implementation was tested using Pytest.
+The M1 storage implementation is tested using Pytest.
 
-**Final test result: 9 passed.**
+**Current M1 test count: 13 tests.**
 
 The tests cover:
 
@@ -509,10 +531,16 @@ The tests cover:
 | FIFO Eviction | Checks the FIFO replacement policy |
 | Pinned Page Protection | Checks that pinned pages cannot be evicted |
 | Dirty Page Flushing | Checks that modified pages are flushed correctly |
+| ColumnStore Restart | Checks persistence after reopening |
+| RowStore Restart | Checks persistence and record ID recovery |
+| Delete, Update, and Slot Reuse | Checks record deletion, updates, and slot reuse |
+| Oversized Record | Checks rejection of records that cannot fit in a page |
 
 ## 12. Milestone 2 – Advanced Indexing
 
-M2 adds indexing and object storage on top of the M1 storage engine. Every index is its own page file built with the M1 `DiskManager` and `BufferPool`. The full design, results and limitations are in [`docs/m2_notes.md`](docs/m2_notes.md).
+M2 adds indexing and object storage on top of the M1 storage engine. Every index is its own page file built with the M1 `DiskManager` and `BufferPool`.
+
+The full design, results, and limitations are documented in `docs/m2_notes.md`.
 
 ### 12.1 Implemented Features
 
@@ -526,15 +554,25 @@ M2 adds indexing and object storage on top of the M1 storage engine. Every index
 - **Encryption hook** (`aerocore/objects/encryption.py`): pluggable `Cipher` interface with a demonstration stream cipher.
 - Typed schemas for the six tables (`aerocore/index/schema.py`) and a generator for all six tables (`data/generate_airline.py`).
 
-Small additive changes to M1: `BufferPool.new_page()`, `RowStore.scan_with_rids()`, `RowStore.update()` returns the new record ID, and `RowStore.insert()` tries the newest page first.
+Small additive changes to M1 include:
+
+- `BufferPool.new_page()`.
+- `RowStore.scan_with_rids()`.
+- `RowStore.update()` returns the new record ID.
+- `RowStore.insert()` tries the newest page first.
 
 ### 12.2 Test Results
 
 Final test result: **76 passed** (9 M1 tests and 67 M2 tests covering the B+ Tree, LSM Tree, IndexedTable, object storage, the SQL parser and engine, and the command-line client).
+The current complete project test suite contains:
+
+**40 passing tests: 13 M1 tests and 27 M2 tests.**
+
+The M2 tests cover the B+ Tree, LSM Tree, IndexedTable, and object storage.
 
 ### 12.3 Benchmark Summary
 
-Measured with 1 warm-up run and 5 measured runs, seed 42 (machine details in `results/m2/environment.json`).
+Measured with one warm-up run and five measured runs, seed 42. Machine details are available in `results/m2/environment.json`.
 
 | Experiment (20,000 keys or rows) | B+ Tree | LSM Tree |
 |---|---:|---:|
@@ -545,7 +583,9 @@ Measured with 1 warm-up run and 5 measured runs, seed 42 (machine details in `re
 | Build index over 20,000 rows | 6.66 s | 0.88 s |
 | Index size | 508 KB | 380 KB |
 
-An indexed lookup on a unique key took 0.32 ms (B+ Tree) compared with 111 ms for a full scan of the 550-page table. The LSM Tree is better for write-heavy workloads and the B+ Tree for read-dominated ones; the 10–30% write range is a near tie and the winner changed between runs (see `docs/m2_notes.md`, section 4.5).
+An indexed lookup on a unique key took 0.32 ms (B+ Tree) compared with 111 ms for a full scan of the 550-page table.
+
+The LSM Tree is better for write-heavy workloads and the B+ Tree for read-dominated ones. The 10–30% write range is a near tie, and the winner changed between runs (see `docs/m2_notes.md`, section 4.5).
 
 ### 12.4 M2 Limitations
 
@@ -584,13 +624,15 @@ Types are `INT`, `TEXT` and `FLOAT`. Conditions are joined with `AND` and use `=
 
 ## 13. Known Limitations
 
-The current M1 implementation provides the storage foundation but does not yet implement all features of a complete DBMS.
+The current implementation provides the storage and indexing foundations but does not yet implement all features of a complete DBMS.
 
 Current limitations include:
 
 - Limited supported data types.
 - Basic record serialization.
-- ColumnStore page mapping is currently maintained in memory.
+- ColumnStore maintains its page mapping in memory during operation and reconstructs it from page headers when the database is reopened.
+- ColumnStore does not currently support update and delete operations.
+- ColumnStore insertions are not fully transactional if a failure occurs partway through writing a row.
 - No advanced free-space compaction.
 - No advanced query processing yet.
 - No transaction processing or recovery yet.
@@ -600,15 +642,14 @@ These features will be addressed in later milestones where applicable.
 
 ## 14. External Libraries
 
-The project dependencies are maintained in `requirements.txt`.
+Project dependencies are maintained in `requirements.txt`.
 
-The main libraries include:
+The project uses:
 
-- NumPy.
-- Matplotlib.
-- Pytest.
+- Matplotlib for benchmark visualization.
+- Pytest for testing.
 
-The custom database engine itself is implemented by the team rather than delegated to an existing database engine.
+The core database storage engine is implemented by the team rather than delegated to an existing database engine.
 
 ## 15. Team Contribution Guidelines
 
