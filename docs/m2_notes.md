@@ -15,7 +15,8 @@ Milestone 2 adds, on top of the M1 storage engine (4 KB pages, `DiskManager`, `B
 | Object storage | Chunked byte-object store on the M1 pages, catalog kept in a B+ Tree | `aerocore/objects/store.py` |
 | Encryption hooks | Pluggable `Cipher` interface, `NullCipher`, demo `StreamCipher` | `aerocore/objects/encryption.py` |
 | Simple indexed queries | `IndexedTable.find`, `find_range`, kept in sync on insert/update/delete | `aerocore/index/indexed_table.py` |
-| Tests and measurements | 36 pytest tests in total (27 new) and 6 benchmark experiments | `tests/`, `benchmarks/`, `results/m2/` |
+| SQL-like indexed queries | Tokenizer, parser, execution engine, `EXPLAIN`, SQL shell, end-to-end demo | `aerocore/sql/`, `aerocore/cli.py`, `aerocore/demo_m2.py` |
+| Tests and measurements | 76 pytest tests in total (67 for M1+M2 additions) and 6 benchmark experiments | `tests/`, `benchmarks/`, `results/m2/` |
 
 The M1 files received only small additive changes: `BufferPool.new_page()`, `RowStore.scan_with_rids()`, `RowStore.update()` now returns the new RID, and `RowStore.insert()` tries the newest page first instead of scanning every page.
 
@@ -61,14 +62,26 @@ The LSM Tree turns random inserts into memory writes plus sequential run files, 
 - A B+ Tree maps `object_id → manifest RID`, so object lookup reuses the M2 index.
 - The encryption hook is any class with `encrypt(bytes)` and `decrypt(bytes)`. `StreamCipher` is a working demonstration built only from the standard library (SHA-256 keystream plus an HMAC-SHA256 tag, encrypt-then-MAC). Tests confirm that plaintext never reaches the file, that a wrong key is rejected and that a flipped byte is detected. It is a teaching cipher, not production security; an audited AEAD (for example AES-GCM) can be plugged in through the same two methods.
 
+### 2.6 SQL-like query layer
+
+`aerocore/sql/parser.py` turns text into a small syntax tree and `aerocore/sql/engine.py` executes it on `IndexedTable`s (one per table, listed in `catalog.json`). Supported statements: `CREATE TABLE`, `CREATE INDEX ... USING auto|bptree|lsm [WORKLOAD (w, p, r)]`, `DROP INDEX`, `REINDEX`, `INSERT`, `SELECT ... WHERE ... ORDER BY ... LIMIT`, `UPDATE`, `DELETE`, `EXPLAIN SELECT` and `SHOW`. Conditions use `=`, `!=`, `<`, `<=`, `>`, `>=`, `BETWEEN` joined by `AND`.
+
+- **Access path.** Equality on an indexed column gives an index lookup; `<`, `<=`, `>`, `>=` or `BETWEEN` on an indexed column gives an index range scan (bounds from several conditions on the same column are merged); otherwise the table is scanned. Every condition is re-checked on each fetched row, so exclusive bounds, `!=` and conditions on other columns are always correct. `EXPLAIN` prints the plan, for example `Filter status = 'confirmed'` over `IndexScan reservations.flight_id using bptree index (key = 12)`.
+- **Index selection.** `CREATE INDEX ... USING auto` applies the rule of section 2.4. Without a `WORKLOAD` clause it uses the operations observed so far (every SQL condition is counted as a point or range read, every insert/update/delete as a write), so a freshly bulk-loaded table looks write-heavy; the `WORKLOAD (writes, point_reads, range_reads)` clause states the expected workload explicitly. `REINDEX` rebuilds an index as the other type when the observed workload says so.
+- **Safety.** Fixed tokenizer, `?` placeholders for values, one statement per call, no comments, catalog-checked names (see README section 12.5). Values are type-checked against the schema. `INSERT` validates every row (types, primary key present, no duplicate key) before storing any, so a bad row never leaves a partial insert.
+- **Baseline for correctness tests.** `execute(sql, use_index=False)` forces a full scan; the tests compare it with the indexed result.
+- **Object storage.** `Database.objects` exposes an `ObjectStore` (optionally encrypted) next to the tables; the demo stores a ticket for a reservation.
+
 ## 3. Correctness evidence
 
-All 36 tests pass (`python -m pytest -v`). The M2 tests cover:
+All 76 tests pass (`python -m pytest -v`). The M2 tests cover:
 
 - **B+ Tree:** equality and range results compared with a Python dict and sorted list on 3,000 shuffled keys with tiny nodes (3+ levels); sequential inserts; duplicate keys; delete; reopen and query; string keys; an index pointing at real `RowStore` rows.
 - **LSM Tree:** the same reference comparison with flushes and compactions forced; delete markers overriding older inserts and being dropped by compaction; update as delete-plus-insert; duplicates; persistence; string keys; and a randomized insert/delete workload on which the LSM Tree and the B+ Tree return identical results.
 - **IndexedTable:** indexed lookups equal full-scan results and read fewer pages; indexes stay correct after update (RID change) and delete; indexes survive reopening; automatic selection and `reselect`; type validation.
 - **Object storage:** round trips from 0 bytes to 200 KB; replace, delete, list by prefix; persistence; 300 objects; encryption round trip with ciphertext on disk; wrong key, wrong cipher and tampering detected.
+- **SQL layer (`tests/test_sql.py`):** parsing and parameter binding; 17 hostile or malformed statements rejected (stacked statements, comments, `OR`, `UNION`, double-quoted strings, unterminated strings, ...); injection text stored and queried as plain data; 13 fixed queries and 80 random queries return identical rows with an index and with a forced full scan (B+ Tree and LSM columns, equality, ranges, strict bounds, `!=`, mixed conditions); `UPDATE` and `DELETE` keep both index types correct; uniqueness and all-or-nothing `INSERT`; type and catalog errors; `EXPLAIN` plans; automatic index selection and `REINDEX`; persistence of tables and indexes after reopening; indexed lookups reading fewer table pages than a scan.
+- **Shell and helpers (`tests/test_cli.py`):** one-shot `-c` and `--file` execution with exit codes, the interactive prompt, airline table creation and bulk loading. The LSM write counter is covered in `tests/test_lsm.py`.
 
 Every benchmark run also checks its results (`correct` column in the CSVs); all are `True`.
 
@@ -179,7 +192,8 @@ Both include one scan of the 550 table pages. The LSM Tree builds 7.6× faster a
 
 - **B+ Tree:** lazy deletes (no node merging, so space is not reclaimed); JSON node encoding; string keys limited to 400 characters; no `fsync`, no crash safety (M4).
 - **LSM Tree:** no Bloom filters; no write-ahead log, so entries still in the memtable are lost if the process crashes before a flush or close (M4 adds the WAL); full compaction rather than leveled compaction; `len()` scans the whole index.
-- **Benchmark instrumentation:** LSM flushes and compactions write their run files through a temporary buffer pool that is not counted, so the `page_writes_per_op` column is 0 for the LSM Tree and must not be read as "no writes"; use the timing and size columns for write cost. Read counts for the LSM Tree are measured.
+- **Benchmark instrumentation:** the LSM Tree counts the page writes of flushes and compactions (`stats()["disk_writes"]`). The CSV files must be regenerated with `python -m benchmarks.run_m2 --runs 5 --seed 42` to show these counts; files produced before this change report 0 writes for the LSM Tree.
+- **SQL layer:** no `OR`, joins, aggregates or sub-queries (M3); single-column indexes; the access path is a fixed rule, not cost-based (M3); statements are validated but not transactional (M4); the `Filter` shown by `EXPLAIN` lists only conditions the index does not guarantee, but all conditions are re-checked on every row.
 - **Benchmarks:** single thread, one machine, five runs, standard deviation between 7% and 46% of the mean run time on the workload mixes (reported in `results/m2/workload_results.csv`), integer keys inserted in shuffled order, narrow (50-key) ranges in the workload mixes.
 - **Object storage:** objects are limited to 1 MB because the manifest must fit in one record; there is no free-page list, so space freed by deletes is not reused except on the last page.
 - **Encryption:** `StreamCipher` is a demonstration, not an audited cipher.
@@ -189,7 +203,9 @@ Both include one scan of the 550 table pages. The LSM Tree builds 7.6× faster a
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -v                                   # 36 tests
+python -m pytest -v                                   # 76 tests
+python -m aerocore.demo_m2                            # SQL + indexes + encrypted ticket + restart
+python -m aerocore.cli                                # interactive SQL shell
 python -m benchmarks.run_m2 --runs 5 --seed 42        # about 2-4 minutes
 python data/generate_airline.py --table reservations --rows 100000 --seed 42   # optional dataset
 ```
@@ -205,3 +221,4 @@ Outputs are written to `results/m2/`: `insert_results.csv`, `lookup_results.csv`
 | Workload-based choice: documented rule | 2 | `selector.py`, section 2.4, section 4.5 |
 | Object storage path and encryption extension point | 1 | `aerocore/objects/`, `tests/test_objects.py`, section 2.5 |
 | Indexed lookup compared with full scan under read/write workloads | 3 | sections 4.4, 4.5, `results/m2/` |
+| Deliverable: simple SQL-like indexed queries | (all) | section 2.6, `aerocore/sql/`, `tests/test_sql.py`, `python -m aerocore.demo_m2` |

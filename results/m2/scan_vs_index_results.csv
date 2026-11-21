@@ -1,7 +1,7 @@
 experiment,structure,n,runs,ops_per_run,mean_s,std_s,ops_per_sec,median_ms,p95_ms,page_reads_per_op,page_writes_per_op,size_kb,correct
-reservation_id_equality,full_scan,20000,5,8,0.956905,0.143278,8.4,111.2101,202.0004,550.0,0.0,0.0,True
-reservation_id_equality,bptree_index,20000,5,100,0.040034,0.010674,2497.9,0.3184,0.801,1.63,0.0,632.0,True
-reservation_id_equality,lsm_index,20000,5,100,0.033312,0.008717,3001.9,0.2475,0.7823,1.8,0.0,376.0,True
-flight_id_equality,full_scan,20000,5,8,1.228266,0.131075,6.5,144.8901,218.7619,550.0,0.0,0.0,True
-flight_id_equality,bptree_index,20000,5,100,0.36818,0.050647,271.6,3.2477,6.5186,92.61,0.0,408.0,True
-flight_id_equality,lsm_index,20000,5,100,0.651232,0.119897,153.6,6.4619,10.0746,93.23,0.0,332.0,True
+reservation_id_equality,full_scan,20000,5,8,1.020803,0.132612,7.8,121.7796,189.2158,550.0,0.0,0.0,True
+reservation_id_equality,bptree_index,20000,5,100,0.032881,0.008816,3041.3,0.3046,0.5307,1.63,0.0,632.0,True
+reservation_id_equality,lsm_index,20000,5,100,0.025928,0.004735,3856.9,0.2458,0.3607,1.8,0.0,376.0,True
+flight_id_equality,full_scan,20000,5,8,0.991666,0.145476,8.1,118.5407,192.8283,550.0,0.0,0.0,True
+flight_id_equality,bptree_index,20000,5,100,0.45461,0.07608,220.0,3.8357,8.0795,92.61,0.0,408.0,True
+flight_id_equality,lsm_index,20000,5,100,0.467903,0.065729,213.7,3.9224,8.6277,93.23,0.0,332.0,True

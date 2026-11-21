@@ -261,6 +261,8 @@ ADB_project/
 │   ├── __init__.py
 │   ├── schemas.py
 │   ├── demo.py
+│   ├── demo_m2.py              # M2 end-to-end demo
+│   ├── cli.py                  # M2 SQL shell
 │   │
 │   ├── storage/
 │   │   ├── __init__.py
@@ -279,10 +281,16 @@ ADB_project/
 │   │   ├── selector.py
 │   │   └── indexed_table.py
 │   │
-│   └── objects/                # M2
+│   ├── objects/                # M2
+│   │   ├── __init__.py
+│   │   ├── encryption.py
+│   │   └── store.py
+│   │
+│   └── sql/                    # M2
 │       ├── __init__.py
-│       ├── encryption.py
-│       └── store.py
+│       ├── parser.py
+│       ├── engine.py
+│       └── airline.py
 │
 ├── benchmarks/
 │   ├── __init__.py
@@ -304,7 +312,9 @@ ADB_project/
 │   ├── test_bptree.py          # M2
 │   ├── test_lsm.py             # M2
 │   ├── test_indexed_table.py   # M2
-│   └── test_objects.py         # M2
+│   ├── test_objects.py         # M2
+│   ├── test_sql.py             # M2
+│   └── test_cli.py             # M2
 │
 ├── docs/
 │   └── m2_notes.md             # M2 design, results and limitations
@@ -420,6 +430,16 @@ results/m2/
 
 Use `--quick` for a short smoke test.
 
+### Run the M2 Demo and the SQL Shell
+
+```bash
+python -m aerocore.demo_m2
+python -m aerocore.cli
+python -m aerocore.cli -c "CREATE TABLE t (id INT, name TEXT); INSERT INTO t VALUES (1, 'a'); SELECT * FROM t WHERE id = 1"
+```
+
+The shell stores its database in `data/aerocore_db` (change it with `--db`). Type `.help` for the dot commands (`.init-airline`, `.load`, `.timing`, `.plan`).
+
 ## 11. M1 Benchmarks and Evaluation
 
 The storage engine is evaluated through repeatable experiments.
@@ -500,6 +520,8 @@ M2 adds indexing and object storage on top of the M1 storage engine. Every index
 - **LSM Tree** index (`aerocore/index/lsm.py`): memtable, immutable sorted runs, delete markers, compaction, same interface as the B+ Tree.
 - **Workload-based index selection** (`aerocore/index/selector.py`): writes of 25% or more of the operations select the LSM Tree, otherwise the B+ Tree. `IndexedTable.create_index(col, "auto")` applies the rule.
 - **IndexedTable** (`aerocore/index/indexed_table.py`): a `RowStore` whose indexes are kept in sync on insert, update and delete, with indexed `find` and `find_range`.
+- **SQL-like query layer** (`aerocore/sql/`): tokenizer, parser and execution engine for `CREATE TABLE`, `CREATE/DROP INDEX`, `INSERT`, `SELECT ... WHERE ... ORDER BY ... LIMIT`, `UPDATE`, `DELETE`, `EXPLAIN` and `SHOW`. Equality and range conditions on indexed columns use the B+ Tree or LSM Tree; everything else is a full scan. Parameterised (`?`) and injection-safe. See section 12.5.
+- **Command-line client** (`aerocore/cli.py`) and an end-to-end **demo** (`aerocore/demo_m2.py`).
 - **Object storage** (`aerocore/objects/store.py`): tickets and manifests stored as chunked objects in M1 pages, with an object catalog kept in a B+ Tree.
 - **Encryption hook** (`aerocore/objects/encryption.py`): pluggable `Cipher` interface with a demonstration stream cipher.
 - Typed schemas for the six tables (`aerocore/index/schema.py`) and a generator for all six tables (`data/generate_airline.py`).
@@ -508,7 +530,7 @@ Small additive changes to M1: `BufferPool.new_page()`, `RowStore.scan_with_rids(
 
 ### 12.2 Test Results
 
-Final test result: **36 passed** (9 M1 tests and 27 M2 tests covering the B+ Tree, LSM Tree, IndexedTable and object storage).
+Final test result: **76 passed** (9 M1 tests and 67 M2 tests covering the B+ Tree, LSM Tree, IndexedTable, object storage, the SQL parser and engine, and the command-line client).
 
 ### 12.3 Benchmark Summary
 
@@ -516,7 +538,8 @@ Measured with 1 warm-up run and 5 measured runs, seed 42 (machine details in `re
 
 | Experiment (20,000 keys or rows) | B+ Tree | LSM Tree |
 |---|---:|---:|
-| Insert throughput | 3,220 ops/s | 23,414 ops/s |
+| Insert throughput | 2,626 ops/s | 21,973 ops/s |
+| Page writes per insert | 0.112 | 0.012 |
 | Point lookup, median | 0.136 ms | 0.209 ms |
 | 1% range scan, median | 0.261 ms | 0.389 ms |
 | Build index over 20,000 rows | 6.66 s | 0.88 s |
@@ -528,9 +551,36 @@ An indexed lookup on a unique key took 0.32 ms (B+ Tree) compared with 111 ms fo
 
 - B+ Tree deletes are lazy (nodes are not merged) and nodes are JSON encoded.
 - The LSM Tree has no Bloom filters and no write-ahead log: entries still in the memtable are lost on a crash until the WAL is added in M4.
-- Page-write counts are not collected for LSM flushes, so `page_writes_per_op` is 0 for the LSM Tree in the CSV files.
+- The SQL layer has no `OR`, joins, aggregates or sub-queries (joins and the optimizer are M3), indexes cover one column, and the access path is a fixed rule, not a cost-based choice.
+- Statements are validated before they run, but they are not transactional: a crash in the middle of an `UPDATE` can leave some rows changed (transactions and recovery are M4).
 - The demonstration cipher is not production security.
 - Object size is limited to 1 MB.
+
+### 12.5 SQL-Like Interface
+
+```sql
+CREATE TABLE reservations (reservation_id INT, passenger_id INT, flight_id INT,
+                           seat_id INT, status TEXT, PRIMARY KEY (reservation_id));
+INSERT INTO reservations VALUES (1, 10, 7, 1, 'confirmed'), (2, 11, 7, 2, 'cancelled');
+CREATE INDEX ON reservations (flight_id) USING auto WORKLOAD (10, 85, 5);   -- rule picks B+ Tree
+CREATE INDEX ON reservations (passenger_id) USING lsm;
+SELECT reservation_id, status FROM reservations
+  WHERE flight_id = 7 AND status = 'confirmed' ORDER BY reservation_id DESC LIMIT 10;
+SELECT * FROM reservations WHERE flight_id BETWEEN 3 AND 6;
+EXPLAIN SELECT * FROM reservations WHERE flight_id = 7;
+UPDATE reservations SET status = 'cancelled' WHERE reservation_id = 2;
+DELETE FROM reservations WHERE flight_id = 7;
+REINDEX ON reservations (flight_id);       -- re-apply the workload rule to the observed workload
+SHOW TABLES;  SHOW INDEXES ON reservations;
+```
+
+Types are `INT`, `TEXT` and `FLOAT`. Conditions are joined with `AND` and use `=`, `!=`, `<`, `<=`, `>`, `>=` or `BETWEEN`. The primary key is indexed automatically with a B+ Tree and is unique.
+
+**Access path.** An equality condition on an indexed column uses an index lookup, a range condition on an indexed column uses an index range scan, and anything else is a full scan. All conditions are re-checked on every fetched row. `EXPLAIN` prints the chosen path. Running `Database.execute(sql, use_index=False)` forces a scan; the tests require both to return identical rows.
+
+**No injection.** SQL text is split by a fixed tokenizer that accepts only numbers, quoted strings, identifiers, comparison operators and `( ) , * ? ;`. Values are passed separately with `?` placeholders, for example `db.execute("SELECT * FROM passengers WHERE name = ?", (name,))`, so a value can never become part of the statement. Only one statement per call is accepted (stacked statements, comments and `OR 1=1` are syntax errors). Table and column names are checked against the catalog.
+
+**Object storage link.** `db.objects` is an `ObjectStore` in the same directory (with the optional cipher), used by the demo to keep an encrypted e-ticket for a reservation.
 
 ## 13. Known Limitations
 
